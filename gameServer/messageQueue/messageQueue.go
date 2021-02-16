@@ -9,18 +9,21 @@ import (
 	"github.com/dgrijalva/jwt-go"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
+	"github.com/lucasdrufva/checkmania-server/gameServer/utilities"
 )
 
 var (
 	PUBLISH      = "publish"
 	SUBSCRIBE    = "subscribe"
 	AUTHENTICATE = "auth"
+	CREATE_GAME  = "createGame"
 )
 
 var ctx = context.Background()
 
 type MessageQueue struct {
 	Clients []SocketClient
+	Games   []Game
 	rdb     *redis.Client
 }
 
@@ -33,9 +36,15 @@ type SocketClient struct {
 
 type Message struct {
 	Message  json.RawMessage `json:"message"`
-	Action   string          `json"action"`
-	Token    string          `json"token"`
+	Action   string          `json:"action"`
+	Token    string          `json:"token"`
 	SenderId string
+}
+
+type Game struct {
+	Id      string
+	Started bool
+	Players []string
 }
 
 func (ms *MessageQueue) Connect() *MessageQueue {
@@ -135,22 +144,22 @@ func (ms *MessageQueue) HandleRecieveMessage(clientId string, messageType int, p
 	case PUBLISH:
 		if client.Auth {
 			ms.QueueMessage(m)
-			fmt.Println("Pusblish new message")
+			fmt.Println("Pubslish new message")
 		} else {
 			fmt.Println("Unauthorised publish")
 		}
-
-		break
 
 	case AUTHENTICATE:
 		fmt.Println("clients connected ", ms.Clients)
 		ms.Authenticate(client, m.Token)
 		fmt.Println("Authenticate client ", client.Id)
 		fmt.Println("clients connected ", ms.Clients)
-		break
+
+	case CREATE_GAME:
+		fmt.Println("create game")
+		ms.CreateGame(client)
 
 	default:
-		break
 	}
 
 	return ms
@@ -181,10 +190,23 @@ func (ms *MessageQueue) DeQueue() *MessageQueue {
 					panic(err)
 				}
 				fmt.Println(client.PlayerId, res.Message)
-				client.Connection.WriteMessage(1, []byte(res.Message))
+				client.Connection.WriteMessage(1, []byte(values[0]))
 			}
 		}
 	}
+}
+
+func (ms *MessageQueue) CreateGame(client SocketClient) *MessageQueue {
+	game := Game{
+		Id:      utilities.GenerateGameId(),
+		Started: false,
+		Players: []string{client.PlayerId},
+	}
+	ms.Games = append(ms.Games, game)
+
+	returnMessage := map[string]string{"action": "joinedGame", "gameId": game.Id}
+	jsonMessage, _ := json.Marshal(returnMessage)
+	client.Connection.WriteMessage(1, []byte(jsonMessage))
 
 	return ms
 }

@@ -5,10 +5,9 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/lucasdrufva/checkmania-server/gameServer/messageQueue"
-
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/lucasdrufva/checkmania-server/gameServer/messageQueue"
+	"github.com/lucasdrufva/checkmania-server/gameServer/utilities"
 )
 
 var upgrader = websocket.Upgrader{
@@ -16,30 +15,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-func autoId() string {
-	return uuid.Must(uuid.NewRandom()).String()
-}
-
 func homePage(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Home Page")
-}
-
-func reader(conn *websocket.Conn) {
-	for {
-		messageType, p, err := conn.ReadMessage()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-
-		log.Println(string(p))
-		log.Println(autoId())
-
-		if err := conn.WriteMessage(messageType, p); err != nil {
-			log.Println(err)
-			return
-		}
-	}
 }
 
 var ms = &messageQueue.MessageQueue{}
@@ -55,7 +32,7 @@ func wsEndpoint(w http.ResponseWriter, r *http.Request) {
 	log.Println("client connected")
 
 	client := messageQueue.SocketClient{
-		Id:         autoId(),
+		Id:         utilities.AutoId(),
 		Auth:       false,
 		Connection: ws,
 	}

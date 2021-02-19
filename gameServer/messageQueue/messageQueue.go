@@ -17,6 +17,7 @@ var (
 	SUBSCRIBE    = "subscribe"
 	AUTHENTICATE = "auth"
 	CREATE_GAME  = "createGame"
+	MAKE_MOVE    = "makeMove"
 )
 
 var ctx = context.Background()
@@ -38,6 +39,7 @@ type Message struct {
 	Message  json.RawMessage `json:"message"`
 	Action   string          `json:"action"`
 	Token    string          `json:"token"`
+	GameId   string          `json:"gameId"`
 	SenderId string
 }
 
@@ -81,7 +83,7 @@ func (ms *MessageQueue) UpdateClient(id string, client SocketClient) *MessageQue
 	return ms
 }
 
-func (ms *MessageQueue) GetClient(id string) *SocketClient {
+func (ms *MessageQueue) GetClientById(id string) *SocketClient {
 	//TODO: add error handling
 	for i, v := range ms.Clients {
 		if v.Id == id {
@@ -91,8 +93,43 @@ func (ms *MessageQueue) GetClient(id string) *SocketClient {
 	return nil
 }
 
+func (ms *MessageQueue) GetClientByPlayerId(id string) *SocketClient {
+	//TODO: add error handling
+	for i, v := range ms.Clients {
+		if v.PlayerId == id {
+			return &ms.Clients[i]
+		}
+	}
+	return nil
+}
+
+func (ms *MessageQueue) GetJoinedGames(PlayerId string) []string {
+	games := []string{}
+
+	for _, game := range ms.Games {
+		for _, player := range game.Players {
+			if player == PlayerId {
+				games = append(games, game.Id)
+			}
+		}
+	}
+
+	return games
+}
+
+func (ms *MessageQueue) GetGame(id string) *Game {
+	//TODO: add error handling
+	for i, v := range ms.Games {
+		if v.Id == id {
+			return &ms.Games[i]
+		}
+	}
+	return nil
+}
+
 func (ms *MessageQueue) QueueMessage(m Message) *MessageQueue {
-	toQueue, err := json.Marshal(m)
+	toQueue,
+		err := json.Marshal(m)
 	if err != nil {
 		fmt.Println("err boho")
 		panic(err)
@@ -107,7 +144,8 @@ func (ms *MessageQueue) QueueMessage(m Message) *MessageQueue {
 }
 
 func (ms *MessageQueue) Authenticate(client SocketClient, tokenString string) *MessageQueue {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token,
+		err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		//Make sure that the token method conform to "SigningMethodHMAC"
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -132,7 +170,7 @@ func (ms *MessageQueue) Authenticate(client SocketClient, tokenString string) *M
 }
 
 func (ms *MessageQueue) HandleRecieveMessage(clientId string, messageType int, payload []byte) *MessageQueue {
-	client := *ms.GetClient(clientId)
+	client := *ms.GetClientById(clientId)
 	m := Message{}
 	json.Unmarshal([]byte(payload), &m)
 	m.SenderId = client.PlayerId
@@ -159,6 +197,14 @@ func (ms *MessageQueue) HandleRecieveMessage(clientId string, messageType int, p
 		fmt.Println("create game")
 		ms.CreateGame(client)
 
+	case MAKE_MOVE:
+		if client.Auth {
+			ms.MakeMove(m)
+			fmt.Println("make move")
+		} else {
+			fmt.Println("Unauthorised makeMove")
+		}
+
 	default:
 	}
 
@@ -167,30 +213,33 @@ func (ms *MessageQueue) HandleRecieveMessage(clientId string, messageType int, p
 
 func (ms *MessageQueue) DeQueue() *MessageQueue {
 	for {
-		time.Sleep(time.Second * 5)
-		values, err := ms.rdb.LRange(ctx, "game", -1, -1).Result()
-		if err != nil {
-			fmt.Println("redis err")
-			continue
-		}
-		if len(values) == 0 {
-			fmt.Println("empty")
-			continue
-		}
+		for _, game := range ms.Games {
+			time.Sleep(time.Second * 5)
+			values, err := ms.rdb.LRange(ctx, game.Id, -1, -1).Result()
+			if err != nil {
+				fmt.Println("redis err")
+				continue
+			}
+			if len(values) == 0 {
+				fmt.Println("empty")
+				continue
+			}
 
-		fmt.Println("last", values[0])
+			fmt.Println("last", values[0])
 
-		res := Message{}
-		json.Unmarshal([]byte(values[0]), &res)
+			res := Message{}
+			json.Unmarshal([]byte(values[0]), &res)
 
-		for _, client := range ms.Clients {
-			if client.PlayerId != res.SenderId {
-				_, err := ms.rdb.RPop(ctx, "game").Result()
-				if err != nil {
-					panic(err)
+			for _, player := range game.Players {
+				if player != res.SenderId {
+					_, err := ms.rdb.RPop(ctx, game.Id).Result()
+					if err != nil {
+						panic(err)
+					}
+					client := ms.GetClientByPlayerId(player)
+					fmt.Println(client.PlayerId, res.Message)
+					client.Connection.WriteMessage(1, []byte(values[0]))
 				}
-				fmt.Println(client.PlayerId, res.Message)
-				client.Connection.WriteMessage(1, []byte(values[0]))
 			}
 		}
 	}
@@ -200,13 +249,35 @@ func (ms *MessageQueue) CreateGame(client SocketClient) *MessageQueue {
 	game := Game{
 		Id:      utilities.GenerateGameId(),
 		Started: false,
-		Players: []string{client.PlayerId},
+		Players: []string{
+			client.PlayerId,
+		},
 	}
 	ms.Games = append(ms.Games, game)
 
-	returnMessage := map[string]string{"action": "joinedGame", "gameId": game.Id}
-	jsonMessage, _ := json.Marshal(returnMessage)
+	returnMessage := map[string]string{
+		"action": "joinedGame",
+		"gameId": game.Id,
+	}
+	jsonMessage,
+		_ := json.Marshal(returnMessage)
 	client.Connection.WriteMessage(1, []byte(jsonMessage))
 
+	return ms
+}
+
+func (ms *MessageQueue) MakeMove(m Message) *MessageQueue {
+	toQueue,
+		err := json.Marshal(m)
+	if err != nil {
+		fmt.Println("err boho")
+		panic(err)
+	}
+
+	err = ms.rdb.LPush(ctx, m.GameId, string(toQueue)).Err()
+	if err != nil {
+		fmt.Println("error here")
+		panic(err)
+	}
 	return ms
 }

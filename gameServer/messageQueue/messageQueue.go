@@ -17,6 +17,7 @@ var (
 	SUBSCRIBE    = "subscribe"
 	AUTHENTICATE = "auth"
 	CREATE_GAME  = "createGame"
+	JOIN_GAME    = "joinGame"
 	MAKE_MOVE    = "makeMove"
 )
 
@@ -178,6 +179,7 @@ func (ms *MessageQueue) HandleRecieveMessage(clientId string, messageType int, p
 	fmt.Println("Client payload: ", m)
 	//fmt.Println("raw payload: ", payload)
 
+	//TODO: refactor auth check
 	switch m.Action {
 	case PUBLISH:
 		if client.Auth {
@@ -204,6 +206,9 @@ func (ms *MessageQueue) HandleRecieveMessage(clientId string, messageType int, p
 		} else {
 			fmt.Println("Unauthorised makeMove")
 		}
+
+	case JOIN_GAME:
+		ms.JoinGame(m)
 
 	default:
 	}
@@ -255,12 +260,34 @@ func (ms *MessageQueue) CreateGame(client SocketClient) *MessageQueue {
 	}
 	ms.Games = append(ms.Games, game)
 
+	ms.joinedGameResponse(client.PlayerId, game.Id)
+
+	return ms
+}
+
+//TODO: suport short gameId
+func (ms *MessageQueue) JoinGame(m Message) *MessageQueue {
+	for i := range ms.Games {
+		if ms.Games[i].Id == m.GameId {
+			ms.Games[i].Players = append(ms.Games[i].Players, m.SenderId)
+			ms.joinedGameResponse(m.SenderId, m.GameId)
+			break
+		}
+	}
+
+	return ms
+}
+
+func (ms *MessageQueue) joinedGameResponse(playerId string, gameId string) *MessageQueue {
+
 	returnMessage := map[string]string{
 		"action": "joinedGame",
-		"gameId": game.Id,
+		"gameId": gameId,
 	}
-	jsonMessage,
-		_ := json.Marshal(returnMessage)
+
+	jsonMessage, _ := json.Marshal(returnMessage)
+
+	client := ms.GetClientByPlayerId(playerId)
 	client.Connection.WriteMessage(1, []byte(jsonMessage))
 
 	return ms

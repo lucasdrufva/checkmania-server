@@ -1,0 +1,47 @@
+version: '3'
+services:
+  auth:
+    container_name: basic-auth-server
+    restart: always
+    build: ./basicAuthServer
+    ports:
+      - '3000:3000'
+    external_links:
+      - mongo
+    depends_on: 
+      - mongo
+
+  mongo:
+    container_name: mongo
+    image: mongo
+    ports:
+      - '27017:27017'
+    volumes: 
+      - /data/db:/data/db
+  
+  game:
+    container_name: game
+    restart: always
+    build: ./gameServer
+    ports:
+      - '8080:8080'
+    external_links:
+      - redis
+    depends_on: 
+      - redis
+
+  redis:
+    container_name: redis
+    image: 'docker.io/bitnami/redis:6.2-debian-10'
+    environment:
+      # ALLOW_EMPTY_PASSWORD is recommended only for development.
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+    ports:
+      - '6379:6379'
+    volumes:
+      - 'redis_data:/bitnami/redis/data'
+
+volumes:
+  redis_data:
+    driver: local

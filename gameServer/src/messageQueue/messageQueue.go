@@ -52,7 +52,7 @@ type Game struct {
 
 func (ms *MessageQueue) Connect() *MessageQueue {
 	ms.rdb = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     "redis:6379",
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
@@ -129,8 +129,7 @@ func (ms *MessageQueue) GetGame(id string) *Game {
 }
 
 func (ms *MessageQueue) QueueMessage(m Message) *MessageQueue {
-	toQueue,
-		err := json.Marshal(m)
+	toQueue, err := json.Marshal(m)
 	if err != nil {
 		fmt.Println("err boho")
 		panic(err)
@@ -145,8 +144,7 @@ func (ms *MessageQueue) QueueMessage(m Message) *MessageQueue {
 }
 
 func (ms *MessageQueue) Authenticate(client SocketClient, tokenString string) *MessageQueue {
-	token,
-		err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		//Make sure that the token method conform to "SigningMethodHMAC"
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -294,8 +292,7 @@ func (ms *MessageQueue) joinedGameResponse(playerId string, gameId string) *Mess
 }
 
 func (ms *MessageQueue) MakeMove(m Message) *MessageQueue {
-	toQueue,
-		err := json.Marshal(m)
+	toQueue, err := json.Marshal(m)
 	if err != nil {
 		fmt.Println("err boho")
 		panic(err)
